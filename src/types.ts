@@ -3,6 +3,7 @@ export interface Message {
   from: string;
   text: string;
   time: string;
+  isAgentMessage?: boolean;
 }
 
 export interface AgentMeta {
@@ -23,4 +24,9 @@ export interface AgentState {
   mode: AgentMode;
   targetX: number;
   targetY: number;
+}
+
+export interface Position {
+  x: number;
+  y: number;
 }

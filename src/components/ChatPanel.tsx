@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { AgentMeta, Message } from "../types";
 
 function agentById(agents: AgentMeta[], id: string) {
@@ -10,14 +10,15 @@ function formatTime(iso: string) {
   return date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function isAgent(id: string): boolean {
-  return ["senior", "qa", "designer"].includes(id);
-}
-
-export default function ChatPanel({ agents }: { agents: AgentMeta[] }) {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: "1", from: "assistant", text: "Agent Office에 오신 것을 환영합니다.", time: new Date().toISOString() },
-  ]);
+export default function ChatPanel({
+  agents,
+  messages,
+  onSendMessage,
+}: {
+  agents: AgentMeta[];
+  messages: Message[];
+  onSendMessage: (text: string) => void;
+}) {
   const [input, setInput] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -31,58 +32,48 @@ export default function ChatPanel({ agents }: { agents: AgentMeta[] }) {
     event.preventDefault();
     const text = input.trim();
     if (!text) return;
-
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), from: "user", text, time: new Date().toISOString() }]);
+    onSendMessage(text);
     setInput("");
-
-    const match = text.match(/@([가-힣a-zA-Z]+)/);
-    const agent = match ? agentById(agents, match[1]) : undefined;
-
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          from: agent ? agent.id : "assistant",
-          text: agent
-            ? `${agent.icon} ${agent.label}: "${text}" 요청을 받았습니다. 검토 후 여기에 결과를 반영할게요.`
-            : "요청을 분류해서 적절한 에이전트에게 전달할게요.",
-          time: new Date().toISOString(),
-        },
-      ]);
-    }, 400);
   };
 
   return (
     <section className="chat">
       <div className="chat-header">
-        <div className="chat-title">사무실 채팅</div>
-        <div className="chat-sub">에이전트 소통 + 실시간 피드백</div>
-        <div className="chat-actions">
-          <button className="chat-new-btn">+ 새로운 채팅</button>
+        <div className="chat-header-top">
+          <div>
+            <div className="chat-title">팀 채팅</div>
+            <div className="chat-sub">에이전트 간 실시간 소통</div>
+          </div>
+          <div className="chat-agent-icons">
+            {agents
+              .filter((a) => a.status !== "offline")
+              .map((a) => (
+                <span key={a.id} className="chat-agent-icon" style={{ color: a.color }} title={a.label}>
+                  {a.icon}
+                </span>
+              ))}
+          </div>
         </div>
-        <div className="chat-hint">@시니어 @QA @디자이너를 입력하여 에이전트를 호출하세요</div>
+        <div className="chat-hint-wrap">
+          <span className="chat-hint">💡 @시니어 @QA @디자이너 로 특정 에이전트 호출</span>
+          <span className="chat-status">
+            <span className="chat-status-dot" /> 실시간
+          </span>
+        </div>
       </div>
 
-      <div className="messages" ref={listRef}>
+      <div className="chat-body" ref={listRef}>
         {messages.length === 0 && (
-          <div className="empty">아직 메시지가 없습니다.</div>
+          <div className="empty">메시지가 없습니다. 대화를 시작해보세요!</div>
         )}
+
         {messages.map((message) => {
-          const matchedAgent = isAgent(message.from) ? agentById(agents, message.from) : undefined;
+          const matchedAgent = message.from !== "user" && message.from !== "system"
+            ? agentById(agents, message.from)
+            : undefined;
 
-          if (message.from === "user") {
-            return (
-              <div key={message.id} className="message-row" style={{ justifyContent: "flex-end" }}>
-                <div className="message-bubble" data-from="user">
-                  <div>{message.text}</div>
-                  <div className="message-time">{formatTime(message.time)}</div>
-                </div>
-              </div>
-            );
-          }
-
-          if (!matchedAgent) {
+          // System message
+          if (message.from === "system") {
             return (
               <div key={message.id} className="message system">
                 {message.text}
@@ -90,31 +81,54 @@ export default function ChatPanel({ agents }: { agents: AgentMeta[] }) {
             );
           }
 
-          return (
-            <div key={message.id} className="message-row" style={{ justifyContent: "flex-start" }}>
-              <div className="message-bubble" data-from={matchedAgent.id}>
-                <div className="message-sender" style={{ color: matchedAgent.color }}>
-                  <span style={{ marginRight: 6 }}>{matchedAgent.icon}</span>
-                  <span className="message-sender-name">{matchedAgent.label}</span>
+          // User message
+          if (message.from === "user") {
+            return (
+              <div key={message.id} className="message-row user-row">
+                <div className="message-bubble user">
+                  <div className="message-text">{message.text}</div>
+                  <div className="message-time">{formatTime(message.time)}</div>
                 </div>
-                <div>{message.text}</div>
-                <div className="message-time">{formatTime(message.time)}</div>
               </div>
-            </div>
-          );
+            );
+          }
+
+          // Agent message
+          if (matchedAgent) {
+            return (
+              <div key={message.id} className="message-row agent-row">
+                <div
+                  className="message-sender-avatar"
+                  style={{ borderColor: `${matchedAgent.color}44` }}
+                >
+                  {matchedAgent.icon}
+                </div>
+                <div className="message-content">
+                  <div className="message-sender" style={{ color: matchedAgent.color }}>
+                    {matchedAgent.label}
+                  </div>
+                  <div className="message-bubble agent">
+                    <div className="message-text">{message.text}</div>
+                    <div className="message-time">{formatTime(message.time)}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return null;
         })}
       </div>
 
       <form className="composer" onSubmit={sendMessage}>
         <input
           value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-            if (event.key === "Enter" && !event.shiftKey) event.currentTarget.form?.requestSubmit();
-          }}
-          placeholder="@시니어 @QA @디자이너"
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="메시지를 입력하거나 @에이전트를 호출하세요..."
         />
-        <button className="send" type="submit">보내기</button>
+        <button className="send" type="submit">
+          전송
+        </button>
       </form>
     </section>
   );
