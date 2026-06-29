@@ -1,0 +1,16 @@
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.app {
+  min-height: 100vh;
+}
