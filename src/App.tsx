@@ -124,31 +124,38 @@ function getRandomTask(agentId: string): string {
   return tasks[Math.floor(Math.random() * tasks.length)];
 }
 
-function agentResponseTemplate(agent: AgentMeta, question: string): string {
-  const responses: Record<string, string[]> = {
+function generateAgentResponse(agentId: string, text: string): string {
+  const t = text.replace(/@\S+\s*/g, "").trim();
+  const keyword = t.length > 0 ? t : "일반";
+
+  const templates: Record<string, string[]> = {
     senior: [
-      `아키텍처 측면에서 보면, "${question}" 부분은 현재 설계로 충분히 커버 가능합니다.`,
-      `코드 리뷰 관점에서 "${question}"는 좋은 접근입니다. 의존성 주입 패턴을 적용해보세요.`,
-      `"${question}" 관련 이슈가 있다면 CI/CD 스크립트에 canary 배포 단계를 추가하겠습니다.`,
+      `${keyword}에 대해 아키텍처 관점에서 검토해보면, 현재 시스템 구조로 충분히 적용 가능합니다. 단, 성능 저하가 우려된다면 캐시 레이어를 먼저 추가하는 걸 권장드려요.`,
+      `${keyword} 요청을 받았습니다. 먼저 관련 코드를 확인한 뒤 리뷰 포인트를 정리해서 공유드릴게요.`,
+      `${keyword}는 배포 프로세스와도 연관이 있으니, CI/CD 파이프라인 점검도 함께 진행하겠습니다.`,
+      `${keyword}에 대해 기술적으로 접근하자면, 의존성 주입과 비동기 처리 흐름을 함께 고려해야 안정적입니다.`,
     ],
     qa: [
-      `"${question}" 테스트 케이스를 검토했습니다. 정상 케이스 3개, 예외 케이스 2개 추가가 필요합니다.`,
-      `"${question}" 관련 엣지 케이스가 누락되었습니다. 보완해서 전달드릴게요.`,
-      `"${question}" 기능은 회귀 테스트가 필요합니다. 기존 케이스와 충돌 여부를 체크 중입니다.`,
+      `${keyword}에 대한 테스트 케이스를 추가로 검토했습니다. 정상 케이스 3개, 예외 케이스 2개를 보완했고 회귀 테스트도 함께 돌렸습니다.`,
+      `${keyword}는 엣지 케이스가 누락되어 있어 보입니다. 관련 시나리오를 추가해서 테스트 자동화 스크립트에 반영하겠습니다.`,
+      `${keyword} 요청 확인했습니다. 먼저 기존 테스트 결과와 충돌 여부를 체크한 뒤, QA 리포팅을 작성하겠습니다.`,
+      `${keyword}를 QA 관점에서 보면 사용자 경로별로 재검증이 필요합니다. 체크리스트를 업데이트하고 검수 진행하겠습니다.`,
     ],
     designer: [
-      `UI/UX 관점에서 "${question}"은 사용자 흐름을 단순화할 수 있는 포인트입니다. 와이어프레임 업데이트하겠습니다.`,
-      `"${question}" 디자인 제안: 정보 계층을 재구성하면 사용성 지표가 개선될 것입니다.`,
-      `"${question}"을 접근성 요구사항에 맞춰 수정하겠습니다.`,
+      `${keyword}에 대해 UI/UX 측면에서 정리해보면, 정보 계층을 재구성하면 사용성이 더 개선될 것으로 보입니다. 와이어프레임을 업데이트하겠습니다.`,
+      `${keyword} 요청을 받았습니다. 디자인 시스템 가이드에 맞춰 컴포넌트를 수정하고, 접근성 요구사항도 함께 검토하겠습니다.`,
+      `${keyword}은 사용자 플로우 상에서 핵심 전환 지점입니다. 프로토타입을 수정해서 검증 가능하도록 준비하겠습니다.`,
+      `${keyword}에 대한 디자인 제안: 시각적 우선순위를 명확히 하고, 피드백 영역을 확보하면 전환율이 개선될 것입니다.`,
     ],
     scribe: [
-      `"${question}" 관련 내용을 기록했습니다. Obsidian 볼트에 회의록을 업데이트할게요.`,
-      `알겠습니다. "${question}" 내용을 정리해서 아카이브하겠습니다.`,
-      `작업 로그를 업데이트했습니다. "${question}" 관련 문서를 Obsidian에 저장했어요.`,
+      `알겠습니다. ${keyword} 관련 내용을 정리해서 현재 진행 상황을 기록해두었습니다.`,
+      `${keyword} 요청을 확인했습니다. 관련 문서를 Obsidian 볼트에 업데이트할게요.`,
+      `${keyword}에 대한 회의록과 작업 로그를 아카이빙했습니다. 나중에 추적할 수 있도록 태그도 달아두었어요.`,
     ],
   };
-  const agentResponses = responses[agent.id] || [`"${question}" 확인 후 답변드리겠습니다.`];
-  return agentResponses[Math.floor(Math.random() * agentResponses.length)];
+
+  const list = templates[agentId] || [`${keyword} 확인 후 답변드리겠습니다.`];
+  return list[Math.floor(Math.random() * list.length)];
 }
 
 async function writeObsidianNote(notePath: string, content: string) {
@@ -181,8 +188,8 @@ function ChibiCharacter({ agent }: { agent: AgentMeta }) {
   return (
     <svg
       className={`avatar-character ${isOffline ? "offline" : ""} ${isIdle ? "idle" : ""}`}
-      width="64"
-      height="70"
+      width="80"
+      height="88"
       viewBox="0 0 52 58"
       fill="none"
     >
@@ -347,50 +354,29 @@ export default function App() {
     const targetAgentId = mentionMatch
       ? agents.find((a) => a.id === mentionMatch[1] || a.label.includes(mentionMatch[1]))
       : undefined;
-    const onlineAgents = agents.filter((a) => a.status !== "offline");
+
+    if (!targetAgentId) {
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        from: "system",
+        text: "⚠️ @시니어, @QA, @디자이너 중 한 명을 멘션해주세요. @비서는 기록 전용입니다.",
+        time: new Date().toISOString(),
+      }]);
+      return;
+    }
+
+    const task = getRandomTask(targetAgentId.id);
+    updateAgentStatus(targetAgentId.id, "busy", task);
+    const response = generateAgentResponse(targetAgentId.id, text);
 
     setTimeout(() => {
-      if (targetAgentId) {
-        const task = getRandomTask(targetAgentId.id);
-        updateAgentStatus(targetAgentId.id, "busy", task);
-        const response = agentResponseTemplate(targetAgentId, text);
-
-        if (targetAgentId.id === "scribe") {
-          const dateStr = new Date().toISOString().split("T")[0];
-          writeObsidianNote(
-            `Logs/${dateStr}-instruction.md`,
-            `---\ndate: ${dateStr}\ntype: instruction\nagent: scribe\n---\n\n## 지시사항\n\n${text}\n\n## 응답\n\n${response}\n`
-          );
-        }
-
-        setMessages((prev) => [...prev, {
-          id: crypto.randomUUID(), from: targetAgentId.id,
-          text: `✅ "${text}" 요청 받았습니다. ${response}`,
-          time: new Date().toISOString(), isAgentMessage: true,
-        }]);
-      } else {
-        onlineAgents.forEach((agent, i) => {
-          setTimeout(() => {
-            const task = getRandomTask(agent.id);
-            updateAgentStatus(agent.id, "busy", task);
-            const response = agentResponseTemplate(agent, text);
-
-            if (agent.id === "scribe") {
-              const dateStr = new Date().toISOString().split("T")[0];
-              writeObsidianNote(
-                `Logs/${dateStr}-session.md`,
-                `---\ndate: ${dateStr}\ntype: session-log\n---\n\n## 세션 기록\n\n**명령**: ${text}\n\n**응답**: ${response}\n\n**참여 에이전트**: ${onlineAgents.map((a) => a.label).join(", ")}\n`
-              );
-            }
-
-            setMessages((prev) => [...prev, {
-              id: crypto.randomUUID(), from: agent.id,
-              text: `✅ "${text}" 요청 받았습니다. ${response}`,
-              time: new Date().toISOString(), isAgentMessage: true,
-            }]);
-          }, i * 800);
-        });
-      }
+      setMessages((prev) => [...prev, {
+        id: crypto.randomUUID(),
+        from: targetAgentId.id,
+        text: response,
+        time: new Date().toISOString(),
+        isAgentMessage: true,
+      }]);
     }, 500);
   }, [agents, updateAgentStatus]);
 
@@ -520,11 +506,11 @@ export default function App() {
             {agents.map((agent) => {
               const pos = positions[agent.id];
               if (!pos) return null;
-              const isMoving = mode === "work" && isWandering;
+              const isMoving = mode === "work" && isWandering && agent.status !== "idle";
               return (
                 <div
                   key={agent.id}
-                  className={`agent-avatar ${mode === "meeting" ? "at-meeting" : ""} ${isMoving ? "is-walking" : ""} status-${agent.status}`}
+                  className={`agent-avatar ${mode === "meeting" ? "at-meeting" : ""} ${isMoving ? "is-walking" : ""} ${agent.status === "idle" ? "is-idle" : ""}`}
                   style={{
                     left: `${pos.x}%`,
                     top: `${pos.y}%`,
