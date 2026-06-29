@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { AgentMeta, Message } from '../types';
+import type { AgentMeta, Message } from "../types";
 
 function agentById(agents: AgentMeta[], id: string) {
   return agents.find((item) => item.id === id);
@@ -10,7 +10,7 @@ function formatTime(iso: string) {
   return date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function isAgent(id: Message["from"] | string): id is Exclude<Message["from"], "assistant"> {
+function isAgent(id: string): boolean {
   return ["senior", "qa", "designer"].includes(id);
 }
 
@@ -55,18 +55,21 @@ export default function ChatPanel({ agents }: { agents: AgentMeta[] }) {
 
   return (
     <section className="chat">
-      <header className="chat-header">
-        <div>
-          <div className="chat-title">사무실 채팅</div>
-          <div className="chat-sub">에이전트 소통 + 당신의 피드백</div>
+      <div className="chat-header">
+        <div className="chat-title">사무실 채팅</div>
+        <div className="chat-sub">에이전트 소통 + 실시간 피드백</div>
+        <div className="chat-actions">
+          <button className="chat-new-btn">+ 새로운 채팅</button>
         </div>
-        <div className="chat-hint">@로 호출 가능: 시니어 QA 디자이너</div>
-      </header>
+        <div className="chat-hint">@시니어 @QA @디자이너를 입력하여 에이전트를 호출하세요</div>
+      </div>
 
       <div className="messages" ref={listRef}>
+        {messages.length === 0 && (
+          <div className="empty">아직 메시지가 없습니다.</div>
+        )}
         {messages.map((message) => {
-          const agentId = isAgent(message.from) ? message.from : null;
-          const matchedAgent = agentId ? agentById(agents, agentId) : undefined;
+          const matchedAgent = isAgent(message.from) ? agentById(agents, message.from) : undefined;
 
           if (message.from === "user") {
             return (
@@ -109,7 +112,7 @@ export default function ChatPanel({ agents }: { agents: AgentMeta[] }) {
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
             if (event.key === "Enter" && !event.shiftKey) event.currentTarget.form?.requestSubmit();
           }}
-          placeholder="메시지를 입력하세요. @시니어 @QA @디자이너"
+          placeholder="@시니어 @QA @디자이너"
         />
         <button className="send" type="submit">보내기</button>
       </form>

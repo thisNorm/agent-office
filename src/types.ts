@@ -1,19 +1,20 @@
 export interface Message {
   id: string;
-  from: "user" | "assistant" | "senior" | "qa" | "designer";
+  from: string;
   text: string;
   time: string;
 }
 
 export interface AgentMeta {
-  id: "senior" | "qa" | "designer";
+  id: string;
   label: string;
   role: string;
   color: string;
   icon: string;
   description: string;
-  status: "online" | "busy" | "offline";
+  status: string;
   currentTask: string;
+  location: string;
 }
 
 export type AgentMode = "room" | "desk" | "meeting";
