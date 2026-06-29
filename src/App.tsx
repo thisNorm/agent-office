@@ -1,121 +1,233 @@
-import { useEffect, useRef, useState } from 'react';
-import type { AgentMeta, Message } from './types';
+import { useState, useEffect } from "react";
+import ChatPanel from "./components/ChatPanel";
+import type { AgentMeta, AgentState, AgentMode } from "./types";
 
-function agentById(agents: AgentMeta[], id: string) {
-  return agents.find((item) => item.id === id);
+const agents: AgentMeta[] = [
+  {
+    id: "senior",
+    label: "시니어 개발자",
+    role: "Senior Developer",
+    color: "#0ea5e9",
+    icon: "🧑‍💻",
+    description: "아키텍처, 코드, 리뷰, 배포/운영까지 주도",
+    status: "busy",
+    currentTask: "Edge Server 아키텍처 설계",
+  },
+  {
+    id: "qa",
+    label: "QA",
+    role: "Quality Assurance",
+    color: "#f59e0b",
+    icon: "🧪",
+    description: "테스트 설계, 품질 검증, 버그/리스크 관리",
+    status: "online",
+    currentTask: "MQTT 브리지 테스트 케이스 검토",
+  },
+  {
+    id: "designer",
+    label: "디자이너",
+    role: "UI/UX Designer",
+    color: "#ec4899",
+    icon: "🎨",
+    description: "대시보드/화면 UI 설계, 컴포넌트 가이드, 사용자 흐름",
+    status: "online",
+    currentTask: "대시보드 메인 화면 초안",
+  },
+];
+
+const FURNITURE = [
+  { kind: "desk", x: 60, y: 120, width: 220, height: 24, label: "시니어 책상", owner: "senior" as const },
+  { kind: "desk", x: 60, y: 220, width: 220, height: 24, label: "QA 책상", owner: "qa" as const },
+  { kind: "desk", x: 60, y: 320, width: 220, height: 24, label: "디자이너 책상", owner: "designer" as const },
+  { kind: "meeting", x: 320, y: 120, width: 210, height: 110, label: "회의실" },
+];
+
+function agentDesk(agentId: string) {
+  return FURNITURE.find((item) => item.owner === agentId);
 }
 
-function formatTime(value: string) {
-  const date = new Date(value);
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-}
-
-export default function ChatPanel({ agents }: { agents: AgentMeta[] }) {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', from: 'assistant', text: 'Agent Office에 오신 것을 환영합니다.', time: new Date().toISOString() },
-  ]);
-  const [input, setInput] = useState('');
-  const listRef = useRef<HTMLDivElement>(null);
+export default function App() {
+  const [agentStates, setAgentStates] = useState<Record<string, AgentState>>({
+    senior: { mode: "desk", targetX: 170, targetY: 132 },
+    qa: { mode: "desk", targetX: 170, targetY: 232 },
+    designer: { mode: "desk", targetX: 170, targetY: 332 },
+  });
+  const [meetingActive, setMeetingActive] = useState(false);
 
   useEffect(() => {
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<string>;
-      const text = custom.detail ?? '';
-      setMessages((prev) => [...prev, { id: crypto.randomUUID(), from: 'assistant', text: `PM: ${text}`, time: new Date().toISOString() }]);
-      setTimeout(() => {
-        setMessages((prev) => [...prev, { id: crypto.randomUUID(), from: 'assistant', text: '요청을 반영했습니다.', time: new Date().toISOString() }]);
-      }, 400);
-    };
+    const id = window.setInterval(() => {
+      setAgentStates((prev) => {
+        const next: Record<string, AgentState> = { ...prev };
+        const keys = Object.keys(next) as string[];
 
-    window.addEventListener('pm-feedback', handler);
-    return () => window.removeEventListener('pm-feedback', handler);
-  }, []);
+        keys.forEach((key) => {
+          const current = next[key];
 
-  useEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages]);
+          if (meetingActive && current.mode !== "meeting") {
+            next[key] = {
+              mode: "meeting",
+              targetX: 360,
+              targetY: 175,
+            };
+            return;
+          }
 
-  const send = () => {
-    const text = input.trim();
-    if (!text) return;
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), from: 'user', text, time: new Date().toISOString() }]);
-    setInput('');
+          const desk = agentDesk(key);
+          if (!desk) return;
 
-    const match = text.match(/@([가-힣a-zA-Z]+)/);
-    const agent = match ? agentById(agents, match[1]) : undefined;
+          const dx = desk.x - current.targetX;
+          const dy = desk.y - current.targetY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const wander = Math.random() > 0.65;
 
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          from: agent ? agent.id : 'assistant',
-          text: agent ? `${agent.icon} ${agent.label}: "${text}" 요청을 받았습니다. 검토 후 여기에 결과를 반영할게요.` : '요청을 분류해서 적절한 에이전트에게 전달할게요.',
-          time: new Date().toISOString(),
-        },
-      ]);
-    }, 400);
+          if (current.mode === "meeting" && !meetingActive) {
+            next[key] = {
+              mode: "desk",
+              targetX: desk.x,
+              targetY: desk.y,
+            };
+            return;
+          }
+
+          if (current.mode === "room") {
+            if (dist < 6) {
+              next[key] = {
+                mode: "desk",
+                targetX: desk.x,
+                targetY: desk.y,
+              };
+            } else {
+              next[key] = {
+                mode: "room",
+                targetX: current.targetX + Math.sign(dx) * 6,
+                targetY: current.targetY + Math.sign(dy) * 6,
+              };
+            }
+            return;
+          }
+
+          if (wander) {
+            next[key] = {
+              mode: "room",
+              targetX: Math.max(40, Math.min(560, current.targetX + (Math.random() * 160 - 80))),
+              targetY: Math.max(40, Math.min(520, current.targetY + (Math.random() * 160 - 80))),
+            };
+          } else if (dist > 8) {
+            next[key] = {
+              mode: "desk",
+              targetX: current.targetX + Math.sign(dx) * 6,
+              targetY: current.targetY + Math.sign(dy) * 6,
+            };
+          }
+        });
+
+        return next;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(id);
+  }, [meetingActive]);
+
+  const spreadToDesks = () => {
+    setMeetingActive(false);
+    setAgentStates({
+      senior: { mode: "desk", targetX: 170, targetY: 132 },
+      qa: { mode: "desk", targetX: 170, targetY: 232 },
+      designer: { mode: "desk", targetX: 170, targetY: 332 },
+    });
+  };
+
+  const gatherToMeeting = () => {
+    setMeetingActive(true);
+    setAgentStates({
+      senior: { mode: "meeting", targetX: 360, targetY: 175 },
+      qa: { mode: "meeting", targetX: 425, targetY: 175 },
+      designer: { mode: "meeting", targetX: 390, targetY: 210 },
+    });
   };
 
   return (
-    <section className="chat">
-      <div className="chat-header">
-        <div>
-          <div className="chat-title">사무실 채팅</div>
-          <div className="chat-sub">에이전트 소통 + 당신의 피드백</div>
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-icon">🏢</span>
+          <span className="brand-title">Agent Office</span>
         </div>
-        <div className="chat-hint">@로 호출 가능: 시니어 QA 디자이너</div>
-      </div>
+        <div className="topbar-actions">
+          <button className="ghost" onClick={spreadToDesks}>사무실 복귀</button>
+          <button className="primary" onClick={gatherToMeeting}>회의하자</button>
+        </div>
+      </header>
 
-      <div className="messages" ref={listRef}>
-        {messages.map((message) => {
-          if (message.from === 'assistant') {
-            return (
-              <div key={message.id} className="message system">
-                {message.text}
-              </div>
-            );
-          }
-
-          const agent = agentById(agents, message.from);
-
-          return (
-            <div key={message.id} className="message-row" style={{ justifyContent: message.from === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div className="message-bubble" data-from={message.from}>
-                <div>
-                  {agent ? (
-                    <div className="message-sender" style={{ color: agent.color }}>
-                      <span style={{ marginRight: 6 }}>{agent.icon}</span>
-                      <span className="message-sender-name">{agent.label}</span>
-                    </div>
-                  ) : null}
-                  <div>{message.text}</div>
+      <section className="layout">
+        <aside className="sidebar">
+          <div className="section-title">에이전트 명단</div>
+          <div className="agents">
+            {agents.map((agent) => (
+              <article key={agent.id} className="agent-card">
+                <div className="agent-header">
+                  <div className="agent-avatar" style={{ background: `${agent.color}14`, border: `1px solid ${agent.color}55` }}>
+                    {agent.icon}
+                  </div>
+                  <div className="agent-meta">
+                    <div className="agent-name">{agent.label}</div>
+                    <div className="agent-role">{agent.role}</div>
+                  </div>
                 </div>
-                <div className="message-time" style={{ color: message.from === 'user' ? '#38bdf8' : '#6b7280' }}>
-                  {formatTime(message.time)}
+                <p className="agent-desc">{agent.description}</p>
+                <div className="agent-task">
+                  <span className="agent-task-label">현재 작업</span>
+                  <span>{agent.currentTask}</span>
                 </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                <div className="agent-status">위치: {agentStates[agent.id]?.mode ?? "desk"}</div>
+              </article>
+            ))}
+          </div>
+        </aside>
 
-      <div className="composer">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="메시지를 입력하세요. @시니어 @QA @디자이너"
-        />
-        <button className="send" onClick={send}>보내기</button>
-      </div>
-    </section>
+        <main className="stage">
+          <div className="office">
+            <div className="room-label top-left">📂 에이전트 오피스</div>
+
+            {FURNITURE.map((item) => (
+              <div
+                key={item.label}
+                className={`furniture ${item.kind}`}
+                style={{ left: item.x, top: item.y, width: item.width, height: item.height }}
+              >
+                <span className="furniture-label">{item.label}</span>
+              </div>
+            ))}
+
+            {agents.map((agent) => {
+              const state = agentStates[agent.id];
+              if (!state) return null;
+
+              const isMeeting = state.mode === "meeting";
+
+              return (
+                <div
+                  key={agent.id}
+                  className={`avatar avatar-${state.mode}`}
+                  style={{
+                    left: state.targetX,
+                    top: state.targetY,
+                    background: `${agent.color}22`,
+                    border: `1px solid ${agent.color}55`,
+                  }}
+                >
+                  <span className="avatar-icon">{agent.icon}</span>
+                  <span className="avatar-name" style={{ color: agent.color }}>
+                    {agent.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <ChatPanel agents={agents} />
+        </main>
+      </section>
+    </div>
   );
 }
