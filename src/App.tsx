@@ -128,34 +128,38 @@ function generateAgentResponse(agentId: string, text: string): string {
   const t = text.replace(/@\S+\s*/g, "").trim();
   const keyword = t.length > 0 ? t : "일반";
 
-  const templates: Record<string, string[]> = {
-    senior: [
-      `${keyword}에 대해 아키텍처 관점에서 검토해보면, 현재 시스템 구조로 충분히 적용 가능합니다. 단, 성능 저하가 우려된다면 캐시 레이어를 먼저 추가하는 걸 권장드려요.`,
-      `${keyword} 요청을 받았습니다. 먼저 관련 코드를 확인한 뒤 리뷰 포인트를 정리해서 공유드릴게요.`,
-      `${keyword}는 배포 프로세스와도 연관이 있으니, CI/CD 파이프라인 점검도 함께 진행하겠습니다.`,
-      `${keyword}에 대해 기술적으로 접근하자면, 의존성 주입과 비동기 처리 흐름을 함께 고려해야 안정적입니다.`,
-    ],
-    qa: [
-      `${keyword}에 대한 테스트 케이스를 추가로 검토했습니다. 정상 케이스 3개, 예외 케이스 2개를 보완했고 회귀 테스트도 함께 돌렸습니다.`,
-      `${keyword}는 엣지 케이스가 누락되어 있어 보입니다. 관련 시나리오를 추가해서 테스트 자동화 스크립트에 반영하겠습니다.`,
-      `${keyword} 요청 확인했습니다. 먼저 기존 테스트 결과와 충돌 여부를 체크한 뒤, QA 리포팅을 작성하겠습니다.`,
-      `${keyword}를 QA 관점에서 보면 사용자 경로별로 재검증이 필요합니다. 체크리스트를 업데이트하고 검수 진행하겠습니다.`,
-    ],
-    designer: [
-      `${keyword}에 대해 UI/UX 측면에서 정리해보면, 정보 계층을 재구성하면 사용성이 더 개선될 것으로 보입니다. 와이어프레임을 업데이트하겠습니다.`,
-      `${keyword} 요청을 받았습니다. 디자인 시스템 가이드에 맞춰 컴포넌트를 수정하고, 접근성 요구사항도 함께 검토하겠습니다.`,
-      `${keyword}은 사용자 플로우 상에서 핵심 전환 지점입니다. 프로토타입을 수정해서 검증 가능하도록 준비하겠습니다.`,
-      `${keyword}에 대한 디자인 제안: 시각적 우선순위를 명확히 하고, 피드백 영역을 확보하면 전환율이 개선될 것입니다.`,
-    ],
-    scribe: [
-      `알겠습니다. ${keyword} 관련 내용을 정리해서 현재 진행 상황을 기록해두었습니다.`,
-      `${keyword} 요청을 확인했습니다. 관련 문서를 Obsidian 볼트에 업데이트할게요.`,
-      `${keyword}에 대한 회의록과 작업 로그를 아카이빙했습니다. 나중에 추적할 수 있도록 태그도 달아두었어요.`,
-    ],
+  const byRole: Record<string, (q: string) => string> = {
+    senior: (q) => {
+      if (/자기소개/g.test(q)) {
+        return "안녕하세요. 저는 시니어 개발자입니다. 아키텍처와 코드 리뷰, 배포/운영까지 담당하고 있습니다.";
+      }
+      if (/리뷰|리팩터|배포|장애|CI|CD|아키텍처|설계/g.test(q)) {
+        return "관련 이슈를 코드/배포 관점에서 검토하겠습니다. 먼저 PR 변경 범위부터 확인하고, 위험 요소를 정리해서 돌아드릴게요.";
+      }
+      return `${q}에 대해서는 기술적 검토가 우선입니다. 필요한 자료를 확인하고 방향을 정리하겠습니다.`;
+    },
+    qa: (q) => {
+      if (/테스트|버그|품질|QC|QA|리그레션|케이스/g.test(q)) {
+        return "해당 기능의 정상/예외/경로 케이스를 정리하고, 회귀 테스트 범위를 먼저 확인하겠습니다.";
+      }
+      return `${q}에 대해서는 검증 포인트를 먼저 뽑고, 체크리스트 기반으로 검수하겠습니다.`;
+    },
+    designer: (q) => {
+      if (/UI|UX|디자인|화면|와이어|피그마|메타|대시보드/g.test(q)) {
+        return "화면/컴포넌트/사용자 흐름 기준으로 개선점을 정리하겠습니다.";
+      }
+      return `${q}에 대해서는 사용자 경험과 디자인 일관성 중심으로 검토하겠습니다.`;
+    },
+    scribe: (q) => {
+      if (/기록|정리|로그|문서|회의록|옵시디언|Obsidian/g.test(q)) {
+        return "해당 내용을 작업 기록으로 정리하고, 필요한 문서 포맷으로 저장해두겠습니다.";
+      }
+      return `${q} 확인했습니다. 관련 내용을 기록·정리하겠습니다.`;
+    },
   };
 
-  const list = templates[agentId] || [`${keyword} 확인 후 답변드리겠습니다.`];
-  return list[Math.floor(Math.random() * list.length)];
+  const fn = byRole[agentId];
+  return fn ? fn(t) : `${t} 확인 후 진행하겠습니다.`;
 }
 
 async function writeObsidianNote(notePath: string, content: string) {
@@ -377,6 +381,7 @@ export default function App() {
         time: new Date().toISOString(),
         isAgentMessage: true,
       }]);
+      updateAgentStatus(targetAgentId.id, "idle", "대기 중");
     }, 500);
   }, [agents, updateAgentStatus]);
 
