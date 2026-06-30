@@ -4,20 +4,8 @@ const url = "http://127.0.0.1:11434/api/generate";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization"
 };
-
-const AGENT_MODELS = {
-  senior: "qwen2.5:14b",
-  qa: "qwen2.5:14b",
-  designer: "qwen2.5:14b",
-  pm: "qwen2.5:14b",
-  scribe: "gemma4:latest",
-};
-
-function pickModel(agentId) {
-  return AGENT_MODELS[agentId] || "gemma3:4b";
-}
 
 function request(body) {
   return new Promise((resolve, reject) => {
@@ -37,13 +25,15 @@ function request(body) {
 http.createServer((req, res) => {
   if (req.method === "OPTIONS") {
     Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
-    res.writeHead(200);
+    res.writeHead(204);
     res.end();
     return;
   }
   if (req.method !== "POST" || req.url !== "/api/chat") {
     Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
-    res.writeHead(404); res.end(JSON.stringify({ error: "not found" })); return;
+    res.writeHead(404);
+    res.end(JSON.stringify({ error: "not found" }));
+    return;
   }
   let body = "";
   req.on("data", (chunk) => { body += chunk; });
@@ -54,11 +44,12 @@ http.createServer((req, res) => {
         label ? `당신은 ${label}입니다.` : "",
         "한국어로 3문장 이내로만 답하세요.",
         "질문/지시에 역할에 맞게 직접 답변하세요.",
-        `사용자 입력: ${text}`,
+        `사용자 입력: ${text}`
       ].filter(Boolean).join("\n");
 
       const data = await request({ model: pickModel(agentId || ""), prompt, stream: false, options: { temperature: 0.7 } });
       const reply = (data && data.response ? data.response : "").trim() || "(응답 없음)";
+
       Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ response: reply }));

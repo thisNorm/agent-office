@@ -393,12 +393,13 @@ export default function App() {
         : undefined;
 
     if (!targetAgentId) {
-      // @없으면 비서에게만 자동 요청 (브로드캐스트 안함)
-      const defaultAgent = agents.find(a => a.id === "scribe");
-      if (!defaultAgent) return;
-      const task = getRandomTask(defaultAgent.id);
-      updateAgentStatus(defaultAgent.id, "busy", task);
-      callHermesAgent(defaultAgent, text);
+      // @없으면 전체 에이전트에게 브로드캐스트
+      const broadcastTargets = agents.filter(a => a.status !== "offline");
+      broadcastTargets.forEach(agent => {
+        const task = getRandomTask(agent.id);
+        updateAgentStatus(agent.id, "busy", task);
+        callHermesAgent(agent, text);
+      });
       return;
     }
 

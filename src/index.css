@@ -120,7 +120,7 @@ header.topbar {
   z-index: 5;
 }
 
-.office-furniture { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+.office-furniture { position: absolute; inset: 0; pointer-events: none; z-index: 15; }
 .furniture { position: absolute; pointer-events: none; }
 
 /* Desks - horizontal row */
@@ -217,7 +217,7 @@ header.topbar {
 .agents-layer { position: absolute; inset: 0; z-index: 10; }
 .agent-avatar {
   position: absolute;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -100%);
   display: flex;
   flex-direction: column;
   align-items: center;
