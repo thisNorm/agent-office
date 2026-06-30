@@ -48,12 +48,21 @@ export default function ChatPanel({
   };
 
   const selectSuggestion = (agent: AgentMeta) => {
-    const caret = (document.activeElement as HTMLInputElement)?.selectionStart ?? input.length;
-    const before = input.slice(0, caret);
-    const after = input.slice(caret);
-    const replaced = before.replace(/@\S*$/, `@${agent.id} `) + after;
-    setInput(replaced);
+    const before = input.includes('@')
+      ? input.replace(/@\S*$/, `@${agent.id} `)
+      : `@${agent.id} `;
+    setInput(before);
     setShowSuggestions(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      if (showSuggestions && suggestions.length > 0) {
+        e.preventDefault();
+        selectSuggestion(suggestions[0]);
+        return;
+      }
+    }
   };
 
   const sendMessage = (event: FormEvent) => {
