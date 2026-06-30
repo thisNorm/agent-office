@@ -66,7 +66,8 @@ const ZONES = {
   qaDesk: { x: 28, y: 20 },
   designerDesk: { x: 46, y: 20 },
   scribeDesk: { x: 64, y: 20 },
-  meetingTable: { x: 82, y: 18 },
+  pmDesk: { x: 82, y: 20 },
+  meetingTable: { x: 50, y: 18 },
   sofa: { x: 82, y: 50 },
   coffeeTable: { x: 70, y: 50 },
   bookshelf: { x: 35, y: 60 },
@@ -80,15 +81,15 @@ const agentWorkSpots: Record<string, Position> = {
   qa: ZONES.qaDesk,
   designer: ZONES.designerDesk,
   scribe: ZONES.scribeDesk,
-  pm: { x: 38, y: 20 },
+  pm: ZONES.pmDesk,
 };
 
 const agentMeetingSpots: Record<string, Position> = {
-  senior: { x: 50, y: 19 },
-  qa: { x: 56, y: 19 },
-  designer: { x: 62, y: 19 },
-  scribe: { x: 68, y: 19 },
-  pm: { x: 58, y: 17 },
+  senior: { x: 46, y: 18 },
+  qa: { x: 52, y: 18 },
+  designer: { x: 58, y: 18 },
+  scribe: { x: 64, y: 18 },
+  pm: { x: 70, y: 18 },
 };
 
 const wanderPoints = Object.values(ZONES);

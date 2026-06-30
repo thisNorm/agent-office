@@ -7,6 +7,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+const AGENT_MODELS = {
+  senior: "qwen2.5:14b",
+  qa: "qwen2.5:14b",
+  designer: "qwen2.5:14b",
+  pm: "qwen2.5:14b",
+  scribe: "gemma4:latest",
+};
+
+function pickModel(agentId) {
+  return AGENT_MODELS[agentId] || "gemma3:4b";
+}
+
 function request(body) {
   return new Promise((resolve, reject) => {
     const req = http.request(url, { method: "POST", headers: { "Content-Type": "application/json" } }, (res) => {
@@ -45,7 +57,7 @@ http.createServer((req, res) => {
         `사용자 입력: ${text}`,
       ].filter(Boolean).join("\n");
 
-      const data = await request({ model: "gemma4:latest", prompt, stream: false, options: { temperature: 0.7 } });
+      const data = await request({ model: pickModel(agentId || ""), prompt, stream: false, options: { temperature: 0.7 } });
       const reply = (data && data.response ? data.response : "").trim() || "(응답 없음)";
       Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
       res.writeHead(200, { "Content-Type": "application/json" });
