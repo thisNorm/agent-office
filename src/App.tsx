@@ -48,6 +48,17 @@ const INITIAL_AGENTS: AgentMeta[] = [
     currentTask: "대기 중",
     location: "desk",
   },
+  {
+    id: "pm",
+    label: "PM",
+    role: "Project Manager",
+    color: "#10b981",
+    icon: "🧑‍💼",
+    description: "프로젝트 일정 조율, 업무 분배, 회의 후 task 할당을 담당합니다.",
+    status: "idle",
+    currentTask: "대기 중",
+    location: "desk",
+  },
 ];
 
 const ZONES = {
@@ -69,6 +80,7 @@ const agentWorkSpots: Record<string, Position> = {
   qa: ZONES.qaDesk,
   designer: ZONES.designerDesk,
   scribe: ZONES.scribeDesk,
+  pm: { x: 38, y: 20 },
 };
 
 const agentMeetingSpots: Record<string, Position> = {
@@ -76,6 +88,7 @@ const agentMeetingSpots: Record<string, Position> = {
   qa: { x: 56, y: 19 },
   designer: { x: 62, y: 19 },
   scribe: { x: 68, y: 19 },
+  pm: { x: 58, y: 17 },
 };
 
 const wanderPoints = Object.values(ZONES);
@@ -348,23 +361,35 @@ export default function App() {
     ));
     setMessages((prev) => [...prev, {
       id: crypto.randomUUID(), from: "system",
-      text: "🔄 회의가 종료되었습니다. 각자 자리로 복귀합니다.",
+      text: "🔄 회의가 종료되었습니다. PM이 업무를 분배합니다.",
       time: new Date().toISOString(),
     }]);
-  }, []);
+    // PM이 회의 내용을 바탕으로 업무 분배
+    setTimeout(() => {
+      const pm = agents.find(a => a.id === "pm");
+      if (!pm) return;
+      updateAgentStatus("pm", "busy", "업무 분배 중");
+      callHermesAgent(pm, "회의가 끝났어. 각자에게 적절한 업무를 분배해줘.");
+    }, 500);
+  }, [agents, updateAgentStatus]);
 
   const handleUserMessage = useCallback((text: string) => {
-    const mentionMatch = text.match(/@(Seniors?|시니어|QA|디자이너|Designer|Scribe|비서|Assistant)\b/i);
-    const hasMeetingKeyword = /회의|미팅|meeting|conference/i.test(text);
+    const mentionMatch = text.match(/@(Seniors?|시니어|QA|디자이너|Designer|Scribe|PM|비서|Assistant)\b/i);
+    const hasMeetingKeyword = /(?:^|\s)(회의\s*시작|회의하자|미팅하자|meeting\s*start|conference\s*start)(?:\s|$|!|\.|\?)/i.test(text);
 
+    // 회의 키워드가 있을 때만 회의 시작
     if (hasMeetingKeyword && mode === "work") {
       toggleMode();
       return;
     }
 
+    // 특정 인물 지칭(@없이) 감지: 이름/역할/호출어로 매칭
+    const nameMentionMatch = text.match(/(?:^|\s)(Seniors?|시니어|QA|디자이너|Designer|Scribe|scribe|비서|Assistant)(?:\s|$|[,.]|!|\?)/i);
     const targetAgentId = mentionMatch
       ? agents.find((a) => a.id.toLowerCase() === (mentionMatch[1] || "").toLowerCase() || a.label.includes(mentionMatch[1]))
-      : undefined;
+      : nameMentionMatch
+        ? agents.find((a) => a.id.toLowerCase() === (nameMentionMatch[1] || "").toLowerCase() || a.label.includes(nameMentionMatch[1]))
+        : undefined;
 
     if (!targetAgentId) {
       // @없으면 비서에게만 자동 요청 (브로드캐스트 안함)
