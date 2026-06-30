@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { AgentMeta, Message } from "../types";
+import { useState, useEffect, useRef, type FormEvent } from 'react';
+import type { AgentMeta, Message } from '../types';
 
 function agentById(agents: AgentMeta[], id: string) {
-  return agents.find((item) => item.id === id);
+  return agents.find((item: AgentMeta) => item.id === id);
 }
 
 function formatTime(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 }
 
 export default function ChatPanel({
@@ -19,7 +18,9 @@ export default function ChatPanel({
   messages: Message[];
   onSendMessage: (text: string) => void;
 }) {
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState('');
+  const [suggestions, setSuggestions] = useState<AgentMeta[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,12 +29,40 @@ export default function ChatPanel({
     el.scrollTop = el.scrollHeight;
   }, [messages]);
 
+  const detectMention = (value: string) => {
+    const caret = (document.activeElement as HTMLInputElement)?.selectionStart ?? value.length;
+    const before = value.slice(0, caret);
+    const match = before.match(/@(\S*)$/);
+    if (!match) {
+      setShowSuggestions(false);
+      return;
+    }
+    const query = match[1].toLowerCase();
+    const matches = agents.filter((a) => {
+      if (a.status === 'offline') return false;
+      const base = [a.id, a.label, a.role].join(' ').toLowerCase();
+      return base.includes(query);
+    });
+    setSuggestions(matches);
+    setShowSuggestions(matches.length > 0);
+  };
+
+  const selectSuggestion = (agent: AgentMeta) => {
+    const caret = (document.activeElement as HTMLInputElement)?.selectionStart ?? input.length;
+    const before = input.slice(0, caret);
+    const after = input.slice(caret);
+    const replaced = before.replace(/@\S*$/, `@${agent.id} `) + after;
+    setInput(replaced);
+    setShowSuggestions(false);
+  };
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     const text = input.trim();
     if (!text) return;
     onSendMessage(text);
-    setInput("");
+    setInput('');
+    setShowSuggestions(false);
   };
 
   return (
@@ -46,7 +75,7 @@ export default function ChatPanel({
           </div>
           <div className="chat-agent-icons">
             {agents
-              .filter((a) => a.status !== "offline")
+              .filter((a) => a.status !== 'offline')
               .map((a) => (
                 <span key={a.id} className="chat-agent-icon" style={{ color: a.color }} title={a.label}>
                   {a.icon}
@@ -55,7 +84,7 @@ export default function ChatPanel({
           </div>
         </div>
         <div className="chat-hint-wrap">
-          <span className="chat-hint">💡 @시니어 @QA @디자이너 로 특정 에이전트 호출</span>
+          <span className="chat-hint">💡 @로 시작하면 에이전트를 선택할 수 있어요</span>
           <span className="chat-status">
             <span className="chat-status-dot" /> 실시간
           </span>
@@ -68,12 +97,11 @@ export default function ChatPanel({
         )}
 
         {messages.map((message) => {
-          const matchedAgent = message.from !== "user" && message.from !== "system"
+          const matchedAgent = message.from !== 'user' && message.from !== 'system'
             ? agentById(agents, message.from)
             : undefined;
 
-          // System message
-          if (message.from === "system") {
+          if (message.from === 'system') {
             return (
               <div key={message.id} className="message system">
                 {message.text}
@@ -81,8 +109,7 @@ export default function ChatPanel({
             );
           }
 
-          // User message
-          if (message.from === "user") {
+          if (message.from === 'user') {
             return (
               <div key={message.id} className="message-row user-row">
                 <div className="message-bubble user">
@@ -93,7 +120,6 @@ export default function ChatPanel({
             );
           }
 
-          // Agent message
           if (matchedAgent) {
             return (
               <div key={message.id} className="message-row agent-row">
@@ -121,11 +147,34 @@ export default function ChatPanel({
       </div>
 
       <form className="composer" onSubmit={sendMessage}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="메시지를 입력하거나 @에이전트를 호출하세요..."
-        />
+        <div className="composer-input-wrap">
+          <input
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              detectMention(e.target.value);
+            }}
+            placeholder="메시지를 입력하거나 @에이전트를 호출하세요..."
+          />
+          {showSuggestions && (
+            <div className="mention-menu">
+              {suggestions.map((suggestion) => (
+                <button
+                  type="button"
+                  key={suggestion.id}
+                  className="mention-item"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    selectSuggestion(suggestion);
+                  }}
+                >
+                  <span style={{ color: suggestion.color }}>{suggestion.icon}</span>
+                  <span>{suggestion.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button className="send" type="submit">
           전송
         </button>

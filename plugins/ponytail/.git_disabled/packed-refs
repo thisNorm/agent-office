@@ -1,0 +1,47 @@
+# pack-refs with: peeled fully-peeled sorted 
+fb2a45db514bed5d0acd78728425f9b9188477f7 refs/remotes/origin/banner-readme
+b742c9c07c89df9936e0e6f7c5e41199f7d3ba7f refs/remotes/origin/bench/agentic-126
+eed2a1c63e2c0a10e1ed3628bde305fbc15ea156 refs/remotes/origin/bench/agentic-chart
+e181b89ac03617f8957af00c276812e772b1a1bd refs/remotes/origin/chore/ponytail-mcp-private
+426ffd0b36309f03bc5dd36484b9fdbee2ba7d51 refs/remotes/origin/chore/sweep-em-dashes
+f72c1459dd5477cafd8a045e7b6031a81331988f refs/remotes/origin/docs/cost-claim-42-75
+dae86adc222540aaaef03103536064ff4edbe550 refs/remotes/origin/docs/install-clarifications
+54625e3e04be3a716aeaefd62fd9e94ee23e2c7f refs/remotes/origin/docs/readme-es-sync
+1a0b0a1b523eaaa43b629cc5d8aed3b8397abf6e refs/remotes/origin/docs/readme-up-to-94
+fda47e8a57fa9f812fa5bd47eb3295284031e16a refs/remotes/origin/docs/star-history
+375827ae175a1a7933624430e39cff928a0ee25d refs/remotes/origin/docs/trendshift-badges
+0e3fd0cfeeea6ed0081e5ee0e169d8521dd3750e refs/remotes/origin/fix-skill-trigger-recall
+dffe9eb822e53068d2a4b5d18afc3733125763f7 refs/remotes/origin/fix/163-em-dashes
+9a27039e32b2e03ec5645fbbb1c7ddeea48ac37f refs/remotes/origin/fix/clawhub-tags-flag
+1f130793d478f8c1e33615130a607b29fd2f59a5 refs/remotes/origin/fix/examples-issue-127
+bbcbd41b43f171060722bd6385afa5398ea0267d refs/remotes/origin/fix/openclaw-ponytail-skill-sync
+67c821538882da1974d8e65e8f91974d2a66c47f refs/remotes/origin/fix/uninstall-followup-226
+16f6cbf4b87792938e47b0f8c650b6d80fcbc98c refs/remotes/origin/main
+b14494003e9fd82d1484dc8bb1d75bc87da9ef3e refs/remotes/origin/promote-waitlist
+e31d66c44a1bb7885b79642653bb7ca0278e8288 refs/remotes/origin/promote-waitlist-v2
+265e0c52e6760e962b7799da7f7c1de5bfe289af refs/remotes/origin/readme-opencode-commands
+6205e9111d5d69e512c65860a0cb82b49aad7dcc refs/remotes/origin/release-4.8.2
+e85517a373283d73a441b201dafe8f38f20ad803 refs/remotes/origin/release-4.8.3
+c99757a14a03badeb3b27e7cfe472914eb9946be refs/remotes/origin/release-4.8.4
+881c145f0fb5eab485db3a3aec5a3fe6f7cc3a4d refs/remotes/origin/rename-scoped-package
+b21b979a7b6e1400dd3756d2dab928e46730fc4c refs/remotes/origin/revert/128-baseline-system-prompt
+7d279904c003d90516186eec513fcc4dab142ebe refs/remotes/origin/revert/82-modern-web-guidance
+c176ec1b3d7cb1a2dee4470d08c5230cdf507916 refs/remotes/origin/sponsors-greenpt
+d8f3ac1afd8a9996ca48994e5c9ed8ef18412603 refs/remotes/origin/sync-translations-devin
+53a834fe6d0e4987db6a10c19be5aa3d717c0267 refs/remotes/origin/trusted-publishing
+be100a0d2f70787c1d7b02884c10ebd8d73b5520 refs/tags/v1.0.0
+^95ba2bafcb1fcff082ea9b330c73d930090b5a9f
+cf97ccc509c758485d1b7b2e980f83128f8e5d08 refs/tags/v4.0.0
+8c279cbfb3a23bb110a654b40aee263674e0d4eb refs/tags/v4.1.0
+df0c6de4b0bba093a0403a7d99c6e0508ba6f746 refs/tags/v4.2.0
+^24b0b98e16f5c66de296654f2cb480c22ea8debc
+b545f1536a37435a27b90eb4ac211bf0e223194a refs/tags/v4.3.0
+1c420ad2f306b2a096dd1e7c1b8c5ebbb4cdf3d4 refs/tags/v4.4.0
+60a75f8159de451320055afb2e0796b3fea636f6 refs/tags/v4.5.0
+ce153bc95fad5e966c756299bf9f73a13687bed1 refs/tags/v4.6.0
+adad50d9b393926b2dd5ed7225dcb1848b9df408 refs/tags/v4.7.0
+dedc97ca7c8a1e7463ac5b36f7fe4b28c3c435a2 refs/tags/v4.8.0
+763e04deeeb59551aba28557dc46bde6092f2e21 refs/tags/v4.8.1
+17e277387deab5faddf417a3f554e1db4e5d08ec refs/tags/v4.8.2
+025da371cd7539c3eb0ad859b08b3ca55e695f16 refs/tags/v4.8.3
+bc9ee949d5f439e8b9f3bb92c6d6d3d1e6ebd324 refs/tags/v4.8.4

@@ -354,36 +354,79 @@ export default function App() {
   }, []);
 
   const handleUserMessage = useCallback((text: string) => {
-    const mentionMatch = text.match(/@(\S+)/);
+    const mentionMatch = text.match(/@(Seniors?|시니어|QA|디자이너|Designer|Scribe|비서|Assistant)\b/i);
+    const hasMeetingKeyword = /회의|미팅|meeting|conference/i.test(text);
+
+    if (hasMeetingKeyword && mode === "work") {
+      toggleMode();
+    }
+
     const targetAgentId = mentionMatch
       ? agents.find((a) => a.id === mentionMatch[1] || a.label.includes(mentionMatch[1]))
       : undefined;
 
     if (!targetAgentId) {
+      // 전체 브로드캐스트
+      const broadcastTargets = agents.filter(a => a.status !== "offline");
+      broadcastTargets.forEach(agent => {
+        const task = getRandomTask(agent.id);
+        updateAgentStatus(agent.id, "busy", task);
+      });
       setMessages((prev) => [...prev, {
         id: crypto.randomUUID(),
-        from: "system",
-        text: "⚠️ @시니어, @QA, @디자이너 중 한 명을 멘션해주세요. @비서는 기록 전용입니다.",
+        from: "user",
+        text,
         time: new Date().toISOString(),
+        isUserMessage: true,
       }]);
+      // 전체에게 Hermes 모델 응답 요청
+      broadcastTargets.forEach(agent => {
+        callHermesAgent(agent, text);
+      });
       return;
     }
 
     const task = getRandomTask(targetAgentId.id);
     updateAgentStatus(targetAgentId.id, "busy", task);
-    const response = generateAgentResponse(targetAgentId.id, text);
+    callHermesAgent(targetAgentId, text);
+  }, [agents, updateAgentStatus, mode, toggleMode]);
 
-    setTimeout(() => {
-      setMessages((prev) => [...prev, {
-        id: crypto.randomUUID(),
-        from: targetAgentId.id,
-        text: response,
-        time: new Date().toISOString(),
-        isAgentMessage: true,
-      }]);
-      updateAgentStatus(targetAgentId.id, "idle", "대기 중");
-    }, 500);
-  }, [agents, updateAgentStatus]);
+  async function callHermesAgent(agent: AgentMeta, text: string) {
+    try {
+      const response = await fetch("http://127.0.0.1:7002/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: agent.id,
+          label: agent.label,
+          text: text.replace(/@\S+\s*/g, "").trim(),
+        }),
+      });
+      const data = await response.json();
+      const reply = (data && data.response) ? data.response : null;
+      setTimeout(() => {
+        setMessages((prev) => [...prev, {
+          id: crypto.randomUUID(),
+          from: agent.id,
+          text: reply || "(응답 없음)",
+          time: new Date().toISOString(),
+          isAgentMessage: true,
+        }]);
+        updateAgentStatus(agent.id, "idle", "대기 중");
+      }, 300);
+    } catch {
+      setTimeout(() => {
+        setMessages((prev) => [...prev, {
+          id: crypto.randomUUID(),
+          from: agent.id,
+          text: "(응답 없음)",
+          time: new Date().toISOString(),
+          isAgentMessage: true,
+        }]);
+        updateAgentStatus(agent.id, "idle", "대기 중");
+      }, 300);
+    }
+  }
 
   return (
     <div className="app">
