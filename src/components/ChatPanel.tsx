@@ -163,6 +163,7 @@ export default function ChatPanel({
               setInput(e.target.value);
               detectMention(e.target.value);
             }}
+            onKeyDown={handleKeyDown}
             placeholder="메시지를 입력하거나 @에이전트를 호출하세요..."
           />
           {showSuggestions && (
