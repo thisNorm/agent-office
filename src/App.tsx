@@ -359,30 +359,20 @@ export default function App() {
 
     if (hasMeetingKeyword && mode === "work") {
       toggleMode();
+      return;
     }
 
     const targetAgentId = mentionMatch
-      ? agents.find((a) => a.id === mentionMatch[1] || a.label.includes(mentionMatch[1]))
+      ? agents.find((a) => a.id.toLowerCase() === (mentionMatch[1] || "").toLowerCase() || a.label.includes(mentionMatch[1]))
       : undefined;
 
     if (!targetAgentId) {
-      // 전체 브로드캐스트
-      const broadcastTargets = agents.filter(a => a.status !== "offline");
-      broadcastTargets.forEach(agent => {
-        const task = getRandomTask(agent.id);
-        updateAgentStatus(agent.id, "busy", task);
-      });
-      setMessages((prev) => [...prev, {
-        id: crypto.randomUUID(),
-        from: "user",
-        text,
-        time: new Date().toISOString(),
-        isUserMessage: true,
-      }]);
-      // 전체에게 Hermes 모델 응답 요청
-      broadcastTargets.forEach(agent => {
-        callHermesAgent(agent, text);
-      });
+      // @없으면 비서에게만 자동 요청 (브로드캐스트 안함)
+      const defaultAgent = agents.find(a => a.id === "scribe");
+      if (!defaultAgent) return;
+      const task = getRandomTask(defaultAgent.id);
+      updateAgentStatus(defaultAgent.id, "busy", task);
+      callHermesAgent(defaultAgent, text);
       return;
     }
 
