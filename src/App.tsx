@@ -1,632 +1,361 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import ChatPanel from "./components/ChatPanel";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AgentSidebar from "./components/AgentSidebar";
-import type { AgentMeta, Message, Position } from "./types";
+import ChatPanel from "./components/ChatPanel";
+import OfficeStage from "./components/OfficeStage";
+import { cleanModelReply, localAgentReply, resolveMention } from "./conversation";
+import {
+  INITIAL_AGENTS,
+  MEETING_SPOTS,
+  WORK_SPOTS,
+  getStatusLabel,
+  keepDistance,
+  pickNextZone,
+  routeWaypoint,
+  spreadPosition,
+  taskForZone,
+} from "./officeLayout";
+import type { AgentMeta, AgentStatus, Message, Position, ZoneId } from "./types";
 
-const INITIAL_AGENTS: AgentMeta[] = [
+// ── localStorage helpers ───────────────────────────────────────────────────
+const LS_MESSAGES = "ao:messages";
+const LS_POSITIONS = "ao:positions";
+const LS_HISTORY = "ao:chatHistory";
+const MAX_STORED_MESSAGES = 120;
+
+function lsGet<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function lsSet(key: string, value: unknown) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+// ── walk helpers ──────────────────────────────────────────────────────────
+const WALK_STEP = 5.5;
+const WALK_INTERVAL_MS = 560;
+
+function stepToward(from: Position, to: Position): Position {
+  const distance = Math.hypot(to.x - from.x, to.y - from.y);
+  if (distance <= WALK_STEP) return to;
+  const ratio = WALK_STEP / distance;
+  return { x: from.x + (to.x - from.x) * ratio, y: from.y + (to.y - from.y) * ratio };
+}
+
+// ── chat history type ──────────────────────────────────────────────────────
+type HistoryEntry = { role: "user" | "assistant"; content: string };
+
+// ── initial state ──────────────────────────────────────────────────────────
+const INITIAL_MESSAGES: Message[] = [
   {
-    id: "senior",
-    label: "시니어 개발자",
-    role: "Senior Developer",
-    color: "#0ea5e9",
-    icon: "🧑‍💻",
-    description: "아키텍처, 코드 리뷰, 배포 설계를 담당합니다.",
-    status: "idle",
-    currentTask: "대기 중",
-    location: "desk",
-  },
-  {
-    id: "qa",
-    label: "QA",
-    role: "Quality Assurance",
-    color: "#f59e0b",
-    icon: "🧪",
-    description: "테스트 케이스 설계, 품질 검증을 담당합니다.",
-    status: "idle",
-    currentTask: "대기 중",
-    location: "desk",
-  },
-  {
-    id: "designer",
-    label: "디자이너",
-    role: "UI/UX Designer",
-    color: "#ec4899",
-    icon: "🎨",
-    description: "UI 설계, 사용자 경험 개선을 담당합니다.",
-    status: "idle",
-    currentTask: "대기 중",
-    location: "desk",
-  },
-  {
-    id: "scribe",
-    label: "비서",
-    role: "Assistant",
-    color: "#8b5cf6",
-    icon: "📚",
-    description: "모든 회의록, 작업 결과물, 에이전트 활동을 수집하여 Obsidian 볼트에 기록하고 관리합니다.",
-    status: "idle",
-    currentTask: "대기 중",
-    location: "desk",
-  },
-  {
-    id: "pm",
-    label: "PM",
-    role: "Project Manager",
-    color: "#10b981",
-    icon: "🧑‍💼",
-    description: "프로젝트 일정 조율, 업무 분배, 회의 후 task 할당을 담당합니다.",
-    status: "idle",
-    currentTask: "대기 중",
-    location: "desk",
+    id: "init",
+    from: "system",
+    text: "Agent Office가 준비되었습니다. @PM, @시니어, @QA, @디자이너, @비서 처럼 멘션하거나, 멘션 없이 보내면 팀 전체가 답합니다.",
+    time: new Date().toISOString(),
   },
 ];
 
-const ZONES = {
-  seniorDesk: { x: 10, y: 20 },
-  qaDesk: { x: 28, y: 20 },
-  designerDesk: { x: 46, y: 20 },
-  scribeDesk: { x: 64, y: 20 },
-  pmDesk: { x: 82, y: 20 },
-  meetingTable: { x: 50, y: 18 },
-  sofa: { x: 82, y: 50 },
-  coffeeTable: { x: 70, y: 50 },
-  bookshelf: { x: 35, y: 60 },
-  cabinet: { x: 50, y: 60 },
-  plant: { x: 15, y: 60 },
-  entrance: { x: 5, y: 85 },
-};
-
-const agentWorkSpots: Record<string, Position> = {
-  senior: ZONES.seniorDesk,
-  qa: ZONES.qaDesk,
-  designer: ZONES.designerDesk,
-  scribe: ZONES.scribeDesk,
-  pm: ZONES.pmDesk,
-};
-
-const agentMeetingSpots: Record<string, Position> = {
-  senior: { x: 46, y: 18 },
-  qa: { x: 52, y: 18 },
-  designer: { x: 58, y: 18 },
-  scribe: { x: 64, y: 18 },
-  pm: { x: 70, y: 18 },
-};
-
-const wanderPoints = Object.values(ZONES);
-
-function getRandomWanderPoint(current: Position): Position {
-  const others = wanderPoints.filter(
-    (p) => Math.hypot(p.x - current.x, p.y - current.y) > 10
-  );
-  if (others.length === 0) return wanderPoints[Math.floor(Math.random() * wanderPoints.length)];
-  return others[Math.floor(Math.random() * wanderPoints.length)];
-}
-
-const TASK_TEMPLATES: Record<string, string[]> = {
-  senior: [
-    "아키텍처 설계 문서 검토 중",
-    "코드 리뷰 진행 중 (PR #42)",
-    "배포 파이프라인 점검 중",
-    "기술 스펙 문서 작성 중",
-    "의존성 패키지 업데이트 검토",
-  ],
-  qa: [
-    "테스트 케이스 작성 중",
-    "리그레션 테스트 실행 중",
-    "버그 리포트 분석 중",
-    "테스트 자동화 스크립트 수정",
-    "MQTT 브리지 테스트 검토",
-  ],
-  designer: [
-    "와이어프레임 스케치 중",
-    "UI 컴포넌트 가이드 업데이트",
-    "사용자 플로우 다이어그램 작성",
-    "프로토타입 디자인 중",
-    "접근성 체크리스트 검토",
-  ],
-  scribe: [
-    "회의록 정리 중",
-    "작업 기록 아카이빙 중",
-    "Obsidian 볼트 문서 업데이트 중",
-    "프로젝트 로그 작성 중",
-    "에이전트 활동 보고서 정리 중",
-  ],
-};
-
-function getRandomTask(agentId: string): string {
-  const tasks = TASK_TEMPLATES[agentId] || ["작업 수행 중"];
-  return tasks[Math.floor(Math.random() * tasks.length)];
-}
-
-function generateAgentResponse(agentId: string, text: string): string {
-  const t = text.replace(/@\S+\s*/g, "").trim();
-  const keyword = t.length > 0 ? t : "일반";
-
-  const byRole: Record<string, (q: string) => string> = {
-    senior: (q) => {
-      if (/자기소개/g.test(q)) {
-        return "안녕하세요. 저는 시니어 개발자입니다. 아키텍처와 코드 리뷰, 배포/운영까지 담당하고 있습니다.";
-      }
-      if (/리뷰|리팩터|배포|장애|CI|CD|아키텍처|설계/g.test(q)) {
-        return "관련 이슈를 코드/배포 관점에서 검토하겠습니다. 먼저 PR 변경 범위부터 확인하고, 위험 요소를 정리해서 돌아드릴게요.";
-      }
-      return `${q}에 대해서는 기술적 검토가 우선입니다. 필요한 자료를 확인하고 방향을 정리하겠습니다.`;
-    },
-    qa: (q) => {
-      if (/테스트|버그|품질|QC|QA|리그레션|케이스/g.test(q)) {
-        return "해당 기능의 정상/예외/경로 케이스를 정리하고, 회귀 테스트 범위를 먼저 확인하겠습니다.";
-      }
-      return `${q}에 대해서는 검증 포인트를 먼저 뽑고, 체크리스트 기반으로 검수하겠습니다.`;
-    },
-    designer: (q) => {
-      if (/UI|UX|디자인|화면|와이어|피그마|메타|대시보드/g.test(q)) {
-        return "화면/컴포넌트/사용자 흐름 기준으로 개선점을 정리하겠습니다.";
-      }
-      return `${q}에 대해서는 사용자 경험과 디자인 일관성 중심으로 검토하겠습니다.`;
-    },
-    scribe: (q) => {
-      if (/기록|정리|로그|문서|회의록|옵시디언|Obsidian/g.test(q)) {
-        return "해당 내용을 작업 기록으로 정리하고, 필요한 문서 포맷으로 저장해두겠습니다.";
-      }
-      return `${q} 확인했습니다. 관련 내용을 기록·정리하겠습니다.`;
-    },
-  };
-
-  const fn = byRole[agentId];
-  return fn ? fn(t) : `${t} 확인 후 진행하겠습니다.`;
-}
-
-async function writeObsidianNote(notePath: string, content: string) {
-  try {
-    const vaultName = "Obsidian-Work-Brain";
-    const fullPath = `Agent-Office/${notePath}`;
-    window.open(
-      `obsidian://new?vault=${vaultName}&file=${encodeURIComponent(fullPath)}&content=${encodeURIComponent(content)}`,
-      "_blank"
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function ChibiCharacter({ agent }: { agent: AgentMeta }) {
-  const c = agent.color;
-  const hairColor =
-    agent.id === "senior"
-      ? "#1e293b"
-      : agent.id === "qa"
-        ? "#4a3d2a"
-        : agent.id === "designer"
-          ? "#8b3a5a"
-          : "#5b3a8a";
-  const isOffline = agent.status === "offline";
-  const isIdle = agent.status === "idle";
-
-  return (
-    <svg
-      className={`avatar-character ${isOffline ? "offline" : ""} ${isIdle ? "idle" : ""}`}
-      width="80"
-      height="88"
-      viewBox="0 0 52 58"
-      fill="none"
-    >
-      <ellipse cx="26" cy="56" rx="16" ry="3" fill="rgba(0,0,0,0.1)" />
-      <rect x="16" y="28" width="20" height="14" rx="5" fill={c} opacity={isOffline ? 0.4 : 0.9} />
-      <path d="M22 28 L26 33 L30 28" fill="white" opacity="0.3" />
-      <rect x="8" y="29" width="9" height="5" rx="2.5" fill={c} opacity={isOffline ? 0.35 : 0.8} />
-      <rect x="35" y="29" width="9" height="5" rx="2.5" fill={c} opacity={isOffline ? 0.35 : 0.8} />
-      <rect x="18" y="42" width="6" height="9" rx="3" fill={c} opacity={isOffline ? 0.3 : 0.75} />
-      <rect x="28" y="42" width="6" height="9" rx="3" fill={c} opacity={isOffline ? 0.3 : 0.75} />
-      <ellipse cx="21" cy="52" rx="4.5" ry="2.5" fill="#333" opacity={isOffline ? 0.3 : 0.7} />
-      <ellipse cx="31" cy="52" rx="4.5" ry="2.5" fill="#333" opacity={isOffline ? 0.3 : 0.7} />
-      <circle cx="26" cy="14" r="12" fill={isOffline ? "#ccc" : "#fce4d6"} />
-      <ellipse cx="26" cy="6" rx="13" ry="8" fill={isOffline ? "#999" : hairColor} opacity={isOffline ? 0.4 : 1} />
-      <path d="M14 10 Q18 6 22 9 Q26 5 30 9 Q34 6 38 10" fill={isOffline ? "#999" : hairColor} opacity={isOffline ? 0.4 : 0.9} />
-      <rect x="14" y="8" width="3" height="8" rx="1.5" fill={isOffline ? "#999" : hairColor} opacity={isOffline ? 0.4 : 0.8} />
-      <rect x="35" y="8" width="3" height="8" rx="1.5" fill={isOffline ? "#999" : hairColor} opacity={isOffline ? 0.4 : 0.8} />
-      {isOffline ? (
-        <>
-          <line x1="18" y1="11" x2="24" y2="17" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="24" y1="11" x2="18" y2="17" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="28" y1="11" x2="34" y2="17" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
-          <line x1="34" y1="11" x2="28" y2="17" stroke="#999" strokeWidth="1.5" strokeLinecap="round" />
-        </>
-      ) : (
-        <>
-          <ellipse cx="21" cy="14" rx="3.5" ry="4" fill="white" />
-          <ellipse cx="31" cy="14" rx="3.5" ry="4" fill="white" />
-          <ellipse cx="21" cy="14.5" rx="2.2" ry="2.8" fill="#2d1b0e" />
-          <ellipse cx="31" cy="14.5" rx="2.2" ry="2.8" fill="#2d1b0e" />
-          <circle cx="20" cy="13" r="1" fill="white" opacity="0.8" />
-          <circle cx="30" cy="13" r="1" fill="white" opacity="0.8" />
-          {isIdle && (
-            <>
-              <circle cx="16" cy="17" r="2.5" fill="#ff8a8a" opacity="0.15" />
-              <circle cx="36" cy="17" r="2.5" fill="#ff8a8a" opacity="0.15" />
-              <path d="M23 19 Q26 20.5 29 19" stroke="#d4756b" strokeWidth="1" fill="none" strokeLinecap="round" />
-            </>
-          )}
-          {!isIdle && (
-            <>
-              <circle cx="16" cy="17" r="3" fill="#ff8a8a" opacity="0.25" />
-              <circle cx="36" cy="17" r="3" fill="#ff8a8a" opacity="0.25" />
-              <path d="M23 18 Q26 21 29 18" stroke="#d4756b" strokeWidth="1.2" fill="none" strokeLinecap="round" />
-            </>
-          )}
-          {agent.id === "senior" && (
-            <>
-              <circle cx="21" cy="14" r="4.5" stroke="rgba(0,0,0,0.25)" strokeWidth="0.8" fill="none" />
-              <circle cx="31" cy="14" r="4.5" stroke="rgba(0,0,0,0.25)" strokeWidth="0.8" fill="none" />
-              <line x1="25.5" y1="14" x2="26.5" y2="14" stroke="rgba(0,0,0,0.25)" strokeWidth="0.8" />
-            </>
-          )}
-          {agent.id === "scribe" && (
-            <>
-              <rect x="19" y="10" width="14" height="10" rx="1" fill="rgba(255,255,255,0.2)" transform="rotate(-5, 26, 15)" />
-              <line x1="21" y1="13" x2="31" y2="13" stroke="white" strokeWidth="0.6" opacity="0.5" />
-              <line x1="21" y1="15" x2="28" y2="15" stroke="white" strokeWidth="0.6" opacity="0.5" />
-              <line x1="21" y1="17" x2="26" y2="17" stroke="white" strokeWidth="0.6" opacity="0.5" />
-            </>
-          )}
-          {agent.id === "qa" && (
-            <g transform="translate(36, 26)">
-              <rect x="0" y="0" width="10" height="7" rx="1" fill="#475569" />
-              <rect x="1" y="1" width="8" height="4" rx="0.5" fill="#0f172a" />
-              <rect x="2" y="2" width="6" height="2" rx="0.3" fill="#3b82f6" opacity="0.3" />
-            </g>
-          )}
-          {agent.id === "designer" && (
-            <g transform="translate(38, 24) rotate(-30)">
-              <rect x="0" y="0" width="2" height="8" rx="1" fill="#ff6b6b" />
-              <rect x="0" y="6" width="2" height="3" rx="0.5" fill="#d4a574" />
-            </g>
-          )}
-        </>
-      )}
-    </svg>
-  );
-}
-
 export default function App() {
-  const [agents, setAgents] = useState<AgentMeta[]>(INITIAL_AGENTS);
-  const [positions, setPositions] = useState<Record<string, Position>>({ ...agentWorkSpots });
+  const [agents, setAgents] = useState<AgentMeta[]>(() =>
+    INITIAL_AGENTS.map((a) => ({ ...a }))
+  );
+  const [positions, setPositions] = useState<Record<string, Position>>(() =>
+    lsGet(LS_POSITIONS, { ...WORK_SPOTS })
+  );
   const [mode, setMode] = useState<"work" | "meeting">("work");
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "init",
-      from: "system",
-      text: "👋 Agent Office에 오신 것을 환영합니다! @시니어, @QA, @디자이너, @비서 에게 업무를 지시해보세요.",
-      time: new Date().toISOString(),
-    },
-  ]);
-  const [isWandering, setIsWandering] = useState(true);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    const saved = lsGet<Message[]>(LS_MESSAGES, []);
+    return saved.length > 0 ? saved : INITIAL_MESSAGES;
+  });
+  const [selectedAgentId, setSelectedAgentId] = useState("pm");
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const [movingAgentIds, setMovingAgentIds] = useState<readonly string[]>([]);
 
-  const positionsRef = useRef<Record<string, Position>>({ ...agentWorkSpots });
-  const agentChatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const positionsRef = useRef<Record<string, Position>>(positions);
+  const agentsRef = useRef<AgentMeta[]>(agents);
+  const tickRef = useRef(0);
+  const routeTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Per-agent conversation history for context memory
+  const chatHistoryRef = useRef<Record<string, HistoryEntry[]>>(
+    lsGet(LS_HISTORY, {})
+  );
 
-  const targets = useMemo(() => {
-    if (mode === "meeting") return { ...agentMeetingSpots };
-    return { ...agentWorkSpots };
-  }, [mode]);
+  // Keep refs in sync
+  useEffect(() => { agentsRef.current = agents; }, [agents]);
+  useEffect(() => { positionsRef.current = positions; }, [positions]);
 
+  // Persist messages (trim to avoid bloat)
   useEffect(() => {
-    // 자동 채팅 비활성화: 사용자 지시가 있을 때만 busy로 변경
-    return () => {};
-  }, [agents, mode]);
+    const toSave = messages.slice(-MAX_STORED_MESSAGES);
+    lsSet(LS_MESSAGES, toSave);
+  }, [messages]);
 
-  const updateAgentStatus = useCallback((agentId: string, status: string, task?: string) => {
-    setAgents((prev) => prev.map((a) =>
-      a.id === agentId ? { ...a, status, currentTask: task || a.currentTask } : a
-    ));
+  // Persist positions
+  useEffect(() => { lsSet(LS_POSITIONS, positions); }, [positions]);
+
+  // ── team stats ───────────────────────────────────────────────────────────
+  const teamStats = useMemo(() => {
+    const count = (s: AgentStatus) => agents.filter((a) => a.status === s).length;
+    return {
+      active: agents.filter((a) => a.status !== "offline").length,
+      working: count("working") + count("speaking"),
+      reviewing: count("reviewing"),
+      meeting: count("meeting"),
+      blocked: count("blocked"),
+    };
+  }, [agents]);
+
+  // ── movement ─────────────────────────────────────────────────────────────
+  const moveAgent = useCallback((agentId: string, target: Position) => {
+    const current = positionsRef.current[agentId] || WORK_SPOTS[agentId] || target;
+    const waypoint = routeWaypoint(current, target);
+    const route = waypoint ? [waypoint, target] : [target];
+
+    const commit = (next: Position) => {
+      positionsRef.current = { ...positionsRef.current, [agentId]: next };
+      setPositions({ ...positionsRef.current });
+    };
+
+    const walk = (routeIndex: number) => {
+      const destination = route[routeIndex];
+      if (!destination) {
+        setMovingAgentIds((ids) => ids.filter((id) => id !== agentId));
+        return;
+      }
+      const next = stepToward(positionsRef.current[agentId] || current, destination);
+      commit(next);
+      if (next.x === destination.x && next.y === destination.y) {
+        walk(routeIndex + 1);
+        return;
+      }
+      routeTimersRef.current[agentId] = setTimeout(() => walk(routeIndex), WALK_INTERVAL_MS);
+    };
+
+    const timer = routeTimersRef.current[agentId];
+    if (timer) clearTimeout(timer);
+    setMovingAgentIds((ids) => (ids.includes(agentId) ? ids : [...ids, agentId]));
+    walk(0);
   }, []);
 
+  useEffect(() => {
+    return () => Object.values(routeTimersRef.current).forEach(clearTimeout);
+  }, []);
+
+  // ── wander loop — moves agents, does NOT fake status ──────────────────────
+  useEffect(() => {
+    if (mode !== "work") return;
+    const interval = setInterval(() => {
+      tickRef.current += 1;
+      const occupied: Position[] = [];
+
+      // Compute new positions outside setAgents to avoid side-effects in updater
+      const currentAgents = agentsRef.current;
+      const updates: { id: string; target: Position; zoneId: ZoneId }[] = [];
+
+      currentAgents.forEach((agent, index) => {
+        if (agent.status === "offline" || agent.status === "speaking") return;
+        const zoneId = pickNextZone(agent, tickRef.current + index);
+        const rawTarget = spreadPosition(zoneId, tickRef.current, index);
+        const target = keepDistance(rawTarget, occupied);
+        occupied.push(target);
+        updates.push({ id: agent.id, target, zoneId });
+      });
+
+      // Move agents (side effect — outside updater)
+      updates.forEach(({ id, target }) => moveAgent(id, target));
+
+      // Only update location, not status — status only changes from user interaction
+      setAgents((prev) =>
+        prev.map((agent) => {
+          const update = updates.find((u) => u.id === agent.id);
+          if (!update) return agent;
+          return { ...agent, location: update.zoneId };
+        })
+      );
+    }, 4400);
+
+    return () => clearInterval(interval);
+  }, [mode, moveAgent]);
+
+  // ── agent status helpers ─────────────────────────────────────────────────
+  const setAgentStatus = useCallback((agentId: string, status: AgentStatus, task?: string) => {
+    setAgents((prev) =>
+      prev.map((a) =>
+        a.id === agentId ? { ...a, status, currentTask: task ?? a.currentTask } : a
+      )
+    );
+  }, []);
+
+  // ── LLM call ────────────────────────────────────────────────────────────
+  const callAgent = useCallback(
+    async (agent: AgentMeta, text: string, delay = 0) => {
+      if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+
+      setSelectedAgentId(agent.id);
+      setActiveAgentId(agent.id);
+      setAgentStatus(agent.id, "speaking", "요청 응답 작성 중");
+      moveAgent(
+        agent.id,
+        mode === "meeting"
+          ? MEETING_SPOTS[agent.id]
+          : WORK_SPOTS[agent.id] || positionsRef.current[agent.id]
+      );
+
+      const history = chatHistoryRef.current[agent.id] ?? [];
+      const cleanText = text.replace(/@\S+\s*/g, "").trim();
+
+      let reply = "";
+      try {
+        const response = await fetch("http://127.0.0.1:7002/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentId: agent.id, label: agent.label, text: cleanText, history }),
+        });
+        const data = await response.json();
+        reply = cleanModelReply(data?.response) || localAgentReply(agent, text);
+      } catch {
+        reply = localAgentReply(agent, text);
+      }
+
+      // Append to per-agent history
+      chatHistoryRef.current[agent.id] = [
+        ...history,
+        { role: "user" as const, content: cleanText },
+        { role: "assistant" as const, content: reply },
+      ].slice(-20); // keep last 20 turns
+      lsSet(LS_HISTORY, chatHistoryRef.current);
+
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), from: agent.id, text: reply, time: new Date().toISOString(), isAgentMessage: true },
+      ]);
+      setActiveAgentId(null);
+      setAgentStatus(agent.id, "idle", "대기 중");
+    },
+    [mode, moveAgent, setAgentStatus]
+  );
+
+  // ── mode toggle ──────────────────────────────────────────────────────────
   const toggleMode = useCallback(() => {
     setMode((prev) => {
       const next = prev === "work" ? "meeting" : "work";
-      if (next === "work") {
-        setIsWandering(true);
-        positionsRef.current = { ...agentWorkSpots };
-        setPositions({ ...agentWorkSpots });
-        setAgents((prev) => prev.map((a) =>
-          a.status === "meeting" ? { ...a, status: "idle", currentTask: "대기 중" } : a
-        ));
-        setMessages((prev) => [...prev, {
-          id: crypto.randomUUID(), from: "system",
-          text: "🔄 회의가 종료되었습니다. 각자 자리로 복귀합니다.",
+      const spots = next === "meeting" ? MEETING_SPOTS : WORK_SPOTS;
+      agentsRef.current.forEach((agent) => moveAgent(agent.id, spots[agent.id]));
+      setAgents((current) =>
+        current.map((agent): AgentMeta => {
+          const status: AgentStatus = next === "meeting" ? "meeting" : "idle";
+          const location: ZoneId = next === "meeting" ? "meeting" : agent.location;
+          return { ...agent, status, location, currentTask: next === "meeting" ? "회의 참석 중" : "대기 중" };
+        })
+      );
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          from: "system",
+          text:
+            next === "meeting"
+              ? "회의 모드가 시작되었습니다. 에이전트들이 War Room으로 이동합니다."
+              : "업무 모드로 복귀했습니다.",
           time: new Date().toISOString(),
-        }]);
-      } else {
-        setIsWandering(false);
-        positionsRef.current = { ...agentMeetingSpots };
-        setPositions({ ...agentMeetingSpots });
-        setAgents((prev) => prev.map((a) =>
-          a.status !== "offline" ? { ...a, status: "meeting", currentTask: "회의 참석 중" } : a
-        ));
-        setMessages((prev) => [...prev, {
-          id: crypto.randomUUID(), from: "system",
-          text: "🏢 회의가 시작되었습니다. 모든 에이전트가 회의실로 이동합니다.",
-          time: new Date().toISOString(),
-        }]);
-      }
+        },
+      ]);
       return next;
     });
-  }, []);
+  }, [moveAgent]);
 
-  const returnToWork = useCallback(() => {
-    setMode("work"); setIsWandering(true);
-    positionsRef.current = { ...agentWorkSpots };
-    setPositions({ ...agentWorkSpots });
-    setAgents((prev) => prev.map((a) =>
-      a.status === "meeting" ? { ...a, status: "idle", currentTask: "대기 중" } : a
-    ));
-    setMessages((prev) => [...prev, {
-      id: crypto.randomUUID(), from: "system",
-      text: "🔄 회의가 종료되었습니다. PM이 업무를 분배합니다.",
-      time: new Date().toISOString(),
-    }]);
-    // PM이 회의 내용을 바탕으로 업무 분배
-    setTimeout(() => {
-      const pm = agents.find(a => a.id === "pm");
-      if (!pm) return;
-      updateAgentStatus("pm", "busy", "업무 분배 중");
-      callHermesAgent(pm, "회의가 끝났어. 각자에게 적절한 업무를 분배해줘.");
-    }, 500);
-  }, [agents, updateAgentStatus]);
+  // ── message handling ─────────────────────────────────────────────────────
+  const handleUserMessage = useCallback(
+    (text: string) => {
+      if (/회의\s*시작|미팅\s*시작|meeting\s*start/i.test(text) && mode === "work") {
+        toggleMode();
+        return;
+      }
 
-  const handleUserMessage = useCallback((text: string) => {
-    const mentionMatch = text.match(/@(Seniors?|시니어|QA|디자이너|Designer|Scribe|PM|비서|Assistant)\b/i);
-    const hasMeetingKeyword = /(?:^|\s)(회의\s*시작|회의하자|미팅하자|meeting\s*start|conference\s*start)(?:\s|$|!|\.|\?)/i.test(text);
+      const mentioned = resolveMention(text, agentsRef.current);
+      if (mentioned) {
+        void callAgent(mentioned, text);
+      } else {
+        // No mention → everyone responds, staggered
+        const active = agentsRef.current.filter((a) => a.status !== "offline");
+        active.forEach((agent, i) => void callAgent(agent, text, i * 1200));
+      }
+    },
+    [callAgent, mode, toggleMode]
+  );
 
-    // 회의 키워드가 있을 때만 회의 시작
-    if (hasMeetingKeyword && mode === "work") {
-      toggleMode();
-      return;
-    }
-
-    // 특정 인물 지칭(@없이) 감지: 이름/역할/호출어로 매칭
-    const nameMentionMatch = text.match(/(?:^|\s)(Seniors?|시니어|QA|디자이너|Designer|Scribe|scribe|비서|Assistant)(?:\s|$|[,.]|!|\?)/i);
-    const targetAgentId = mentionMatch
-      ? agents.find((a) => a.id.toLowerCase() === (mentionMatch[1] || "").toLowerCase() || a.label.includes(mentionMatch[1]))
-      : nameMentionMatch
-        ? agents.find((a) => a.id.toLowerCase() === (nameMentionMatch[1] || "").toLowerCase() || a.label.includes(nameMentionMatch[1]))
-        : undefined;
-
-    if (!targetAgentId) {
-      // @없으면 전체 에이전트에게 브로드캐스트
-      const broadcastTargets = agents.filter(a => a.status !== "offline");
-      broadcastTargets.forEach(agent => {
-        const task = getRandomTask(agent.id);
-        updateAgentStatus(agent.id, "busy", task);
-        callHermesAgent(agent, text);
-      });
-      return;
-    }
-
-    const task = getRandomTask(targetAgentId.id);
-    updateAgentStatus(targetAgentId.id, "busy", task);
-    callHermesAgent(targetAgentId, text);
-  }, [agents, updateAgentStatus, mode, toggleMode]);
-
-  async function callHermesAgent(agent: AgentMeta, text: string) {
-    try {
-      const response = await fetch("http://127.0.0.1:7002/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId: agent.id,
-          label: agent.label,
-          text: text.replace(/@\S+\s*/g, "").trim(),
-        }),
-      });
-      const data = await response.json();
-      const reply = (data && data.response) ? data.response : null;
-      setTimeout(() => {
-        setMessages((prev) => [...prev, {
-          id: crypto.randomUUID(),
-          from: agent.id,
-          text: reply || "(응답 없음)",
-          time: new Date().toISOString(),
-          isAgentMessage: true,
-        }]);
-        updateAgentStatus(agent.id, "idle", "대기 중");
-      }, 300);
-    } catch {
-      setTimeout(() => {
-        setMessages((prev) => [...prev, {
-          id: crypto.randomUUID(),
-          from: agent.id,
-          text: "(응답 없음)",
-          time: new Date().toISOString(),
-          isAgentMessage: true,
-        }]);
-        updateAgentStatus(agent.id, "idle", "대기 중");
-      }, 300);
-    }
-  }
+  const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? agents[0];
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <span className="brand-icon">AO</span>
-          <span className="brand-name">Agent Office</span>
-          <span className="brand-sub">— 멀티 에이전트 협업 플랫폼</span>
-        </div>
-        <div className="topbar-center">
-          <div className="mode-indicator">
-            <span className={`mode-badge ${mode}`}>
-              {mode === "work" ? "💼 업무 모드" : "🤝 회의 모드"}
-            </span>
-            <span className="agent-count">
-              {agents.filter((a) => a.status === "busy").length}명 작업중 · {agents.filter((a) => a.status === "idle").length}명 대기중
-            </span>
+          <div>
+            <span className="brand-name">Agent Office</span>
+            <span className="brand-sub">멀티 에이전트 협업 플랫폼</span>
           </div>
         </div>
+
+        <div className="team-metrics" aria-label="팀 상태 요약">
+          <span>Active {teamStats.active}</span>
+          <span>Working {teamStats.working}</span>
+          <span>Reviewing {teamStats.reviewing}</span>
+          <span>Meeting {teamStats.meeting}</span>
+          <span>Blocked {teamStats.blocked}</span>
+        </div>
+
         <div className="topbar-actions">
           <div className="topbar-status">
             <span className="topbar-dot" />
-            <span className="topbar-label">Online</span>
+            <span>{mode === "meeting" ? "Meeting" : "Live Ops"}</span>
           </div>
-          {mode === "meeting" && (
-            <button className="ghost" onClick={returnToWork}>사무실 복귀</button>
-          )}
-          <button className="primary" onClick={toggleMode}>
-            {mode === "work" ? "🤝 회의 시작" : "💼 업무 복귀"}
+          <button className="primary" type="button" onClick={toggleMode}>
+            {mode === "work" ? "회의 시작" : "업무 복귀"}
           </button>
         </div>
       </header>
 
       <section className="layout">
-        <AgentSidebar agents={agents} mode={mode} />
+        <AgentSidebar
+          agents={agents}
+          mode={mode}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={setSelectedAgentId}
+        />
 
-        <main className="stage">
-          <div className="office-bg">
-            <div className="office-floor">
-              <div className="floor-grid" />
-              <div className="office-walls">
-                <div className="wall-top" />
-                <div className="wall-left" />
-              </div>
-
-              <div className="office-furniture">
-                <div className="furniture desk senior-desk">
-                  <div className="desk-top">
-                    <div className="desk-monitor" />
-                    <div className="desk-keyboard" />
-                    <span className="desk-label">시니어 개발자</span>
-                    <span className="desk-accessory coffee">☕</span>
-                  </div>
-                </div>
-                <div className="furniture desk qa-desk">
-                  <div className="desk-top">
-                    <div className="desk-monitor" />
-                    <div className="desk-keyboard" />
-                    <span className="desk-label">QA</span>
-                    <span className="desk-accessory plant">🌱</span>
-                  </div>
-                </div>
-                <div className="furniture desk designer-desk">
-                  <div className="desk-top">
-                    <div className="desk-monitor" />
-                    <div className="desk-keyboard" />
-                    <span className="desk-label">디자이너</span>
-                  </div>
-                </div>
-                <div className="furniture desk scribe-desk">
-                  <div className="desk-top">
-                    <div className="desk-monitor" />
-                    <div className="desk-keyboard" />
-                    <span className="desk-label">비서</span>
-                    <span className="desk-accessory" style={{ right: "2px", bottom: "4px", fontSize: "10px" }}>📚</span>
-                  </div>
-                </div>
-                <div className="furniture meeting-table">
-                  <div className="table-top">
-                    <div className="table-surface">
-                      <span className="table-label">회의 테이블</span>
-                    </div>
-                    <div className="table-chairs">
-                      <div className="table-chair" />
-                      <div className="table-chair" />
-                      <div className="table-chair" />
-                      <div className="table-chair" />
-                    </div>
-                  </div>
-                </div>
-                <div className="furniture sofa">
-                  <div className="sofa-body">
-                    <div className="sofa-armrest left" />
-                    <div className="sofa-armrest right" />
-                    <span className="sofa-label">SOFA</span>
-                  </div>
-                </div>
-                <div className="furniture coffee-table">
-                  <div className="coffee-table-top">
-                    <span className="coffee-table-label">☕</span>
-                  </div>
-                </div>
-                <div className="furniture bookshelf">
-                  <div className="bookshelf-body">
-                    <div className="bookshelf-shelf"><span>📘</span><span>📗</span><span>📙</span></div>
-                    <div className="bookshelf-shelf"><span>📕</span><span>📘</span><span>📓</span></div>
-                    <div className="bookshelf-shelf"><span>📗</span><span>📙</span><span>📕</span></div>
-                  </div>
-                </div>
-                <div className="furniture cabinet">
-                  <div className="cabinet-body">
-                    <span className="cabinet-label">🗄️</span>
-                  </div>
-                </div>
-                <div className="furniture plant">
-                  <div className="plant-pot">
-                    <span className="plant-leaves">🌿</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="agents-layer">
-            {agents.map((agent) => {
-              const pos = positions[agent.id];
-              if (!pos) return null;
-              const isMoving = mode === "work" && isWandering && agent.status !== "idle";
-              return (
-                <div
-                  key={agent.id}
-                  className={`agent-avatar ${mode === "meeting" ? "at-meeting" : ""} ${isMoving ? "is-walking" : ""} ${agent.status === "idle" ? "is-idle" : ""}`}
-                  style={{
-                    left: `${pos.x}%`,
-                    top: `${pos.y}%`,
-                    "--agent-color": agent.color,
-                  } as React.CSSProperties}
-                >
-                  <div className="avatar-body">
-                    <ChibiCharacter agent={agent} />
-                    <div className="avatar-shadow" />
-                  </div>
-                  <div className="avatar-info">
-                    <span className="avatar-name" style={{ color: agent.color }}>
-                      {agent.label}
-                    </span>
-                    <span className={`avatar-status ${agent.status}`} />
-                  </div>
-                  {agent.status === "busy" && isMoving && (
-                    <div className="avatar-thought">
-                      <span>{agent.currentTask}</span>
-                    </div>
-                  )}
-                  {agent.status === "idle" && (
-                    <div className="avatar-idle-badge">💤 대기중</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {mode === "meeting" && (
-            <div className="meeting-overlay">
-              <div className="meeting-badge">🤝 회의 진행중</div>
-              <div className="meeting-participants">
-                {agents.filter((a) => a.status !== "offline").map((a) => (
-                  <span key={a.id} className="meeting-participant" style={{ color: a.color }}>
-                    {a.icon} {a.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </main>
+        <OfficeStage
+          agents={agents}
+          positions={positions}
+          mode={mode}
+          selectedAgentId={selectedAgentId}
+          activeAgentId={activeAgentId}
+          movingAgentIds={movingAgentIds}
+          onSelectAgent={setSelectedAgentId}
+        />
 
         <aside className="right-panel">
+          {selectedAgent && (
+            <div className="agent-detail-strip">
+              <span>{selectedAgent.label}</span>
+              <strong>
+                {getStatusLabel(selectedAgent.status)} · {selectedAgent.currentTask}
+              </strong>
+            </div>
+          )}
           <ChatPanel
             agents={agents}
             messages={messages}
+            activeAgentId={activeAgentId}
+            onSelectAgent={setSelectedAgentId}
             onSendMessage={(text: string) => {
-              setMessages((prev) => [...prev, {
-                id: crypto.randomUUID(), from: "user", text, time: new Date().toISOString(),
-              }]);
+              setMessages((prev) => [
+                ...prev,
+                { id: crypto.randomUUID(), from: "user", text, time: new Date().toISOString() },
+              ]);
               handleUserMessage(text);
             }}
           />
